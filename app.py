@@ -1,15 +1,21 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import seaborn as sns
 import matplotlib.pyplot as plt
-from google.cloud import storage
+import seaborn as sns
+from datetime import datetime, timedelta
 import io
 import warnings
 warnings.filterwarnings('ignore')
+
+# Try to import plotly, fall back to matplotlib if not available
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.warning("Plotly not available. Using matplotlib for all visualizations.")
 
 # Page config
 st.set_page_config(
@@ -42,16 +48,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize GCP Storage (optional - comment out if not using GCP)
-def init_gcp_storage():
-    try:
-        # Replace with your bucket name
-        bucket_name = "your-bucket-name"
-        client = storage.Client()
-        bucket = client.bucket(bucket_name)
-        return bucket
-    except:
-        return None
+# Download functionality for plots
+def create_download_link(fig, filename):
+    """Create a download button for matplotlib figures"""
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format='png', dpi=300, bbox_inches='tight')
+    buffer.seek(0)
+    return buffer.getvalue()
 
 # Generate sample data
 @st.cache_data
@@ -93,26 +96,22 @@ def generate_sample_data():
     return pd.DataFrame(data)
 
 # Save plot to GCP
-def save_plot_to_gcp(fig, filename, bucket=None):
-    if bucket:
-        try:
-            buffer = io.BytesIO()
-            fig.savefig(buffer, format='png', dpi=300, bbox_inches='tight')
-            buffer.seek(0)
-            
-            blob = bucket.blob(f"plots/{filename}")
-            blob.upload_from_file(buffer, content_type='image/png')
-            st.success(f"Plot saved to GCP: {filename}")
-        except Exception as e:
-            st.warning(f"Failed to save to GCP: {e}")
+def save_plot_locally(fig, filename):
+    """Save plot and provide download option"""
+    buffer = create_download_link(fig, filename)
+    st.download_button(
+        label=f"📥 Download {filename}",
+        data=buffer,
+        file_name=filename,
+        mime="image/png",
+        help="Click to download the plot as PNG"
+    )
 
 # Main app
 def main():
+    # Initialize app
     st.markdown('<h1 class="main-header">📚 Online Learning Engagement Tracker</h1>', 
                 unsafe_allow_html=True)
-    
-    # Initialize GCP (optional)
-    gcp_bucket = init_gcp_storage()
     
     # Load data
     df = generate_sample_data()
@@ -164,28 +163,43 @@ def main():
             # Engagement per course bar chart
             course_engagement = filtered_df.groupby('course')['total_hours'].mean().sort_values(ascending=True)
             
-            fig_bar = px.bar(
-                x=course_engagement.values,
-                y=course_engagement.index,
-                orientation='h',
-                title="Average Hours per Course",
-                color=course_engagement.values,
-                color_continuous_scale='viridis'
-            )
-            fig_bar.update_layout(height=400)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            if PLOTLY_AVAILABLE:
+                fig_bar = px.bar(
+                    x=course_engagement.values,
+                    y=course_engagement.index,
+                    orientation='h',
+                    title="Average Hours per Course",
+                    color=course_engagement.values,
+                    color_continuous_scale='viridis'
+                )
+                fig_bar.update_layout(height=400)
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                bars = ax.barh(course_engagement.index, course_engagement.values, color='viridis')
+                ax.set_title('Average Hours per Course', fontsize=14)
+                ax.set_xlabel('Hours')
+                st.pyplot(fig)
         
         with col2:
             # Performance distribution
-            fig_hist = px.histogram(
-                filtered_df, 
-                x='performance_score', 
-                nbins=20,
-                title="Performance Score Distribution",
-                color_discrete_sequence=['#ff7f0e']
-            )
-            fig_hist.update_layout(height=400)
-            st.plotly_chart(fig_hist, use_container_width=True)
+            if PLOTLY_AVAILABLE:
+                fig_hist = px.histogram(
+                    filtered_df, 
+                    x='performance_score', 
+                    nbins=20,
+                    title="Performance Score Distribution",
+                    color_discrete_sequence=['#ff7f0e']
+                )
+                fig_hist.update_layout(height=400)
+                st.plotly_chart(fig_hist, use_container_width=True)
+            else:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.hist(filtered_df['performance_score'], bins=20, color='#ff7f0e', alpha=0.7)
+                ax.set_title('Performance Score Distribution', fontsize=14)
+                ax.set_xlabel('Performance Score')
+                ax.set_ylabel('Frequency')
+                st.pyplot(fig)
     
     with tab2:
         st.subheader("🔥 Hours vs Performance Heatmap")
@@ -205,9 +219,10 @@ def main():
         
         st.pyplot(fig)
         
-        # Save to GCP
-        if gcp_bucket:
-            save_plot_to_gcp(fig, 'heatmap_hours_vs_performance.png', gcp_bucket)
+        # Download option
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            save_plot_locally(fig, 'heatmap_hours_vs_performance.png')
     
     with tab3:
         st.subheader("📈 Weekly Activity Trends")
@@ -227,27 +242,49 @@ def main():
         weekly_summary = weekly_df.groupby(['Week', 'Course'])['Hours'].mean().reset_index()
         
         # Line chart
-        fig_line = px.line(
-            weekly_summary, 
-            x='Week', 
-            y='Hours', 
-            color='Course',
-            title='Weekly Learning Activity Trends',
-            markers=True
-        )
-        fig_line.update_layout(height=500)
-        st.plotly_chart(fig_line, use_container_width=True)
+        if PLOTLY_AVAILABLE:
+            fig_line = px.line(
+                weekly_summary, 
+                x='Week', 
+                y='Hours', 
+                color='Course',
+                title='Weekly Learning Activity Trends',
+                markers=True
+            )
+            fig_line.update_layout(height=500)
+            st.plotly_chart(fig_line, use_container_width=True)
+        else:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            for course in weekly_summary['Course'].unique():
+                course_data = weekly_summary[weekly_summary['Course'] == course]
+                ax.plot(course_data['Week'], course_data['Hours'], marker='o', label=course)
+            ax.set_title('Weekly Learning Activity Trends', fontsize=14)
+            ax.set_xlabel('Week')
+            ax.set_ylabel('Hours')
+            ax.legend()
+            ax.grid(alpha=0.3)
+            st.pyplot(fig)
         
         # Overall trend
         overall_weekly = weekly_df.groupby('Week')['Hours'].mean().reset_index()
-        fig_overall = px.area(
-            overall_weekly, 
-            x='Week', 
-            y='Hours',
-            title='Overall Weekly Activity Trend',
-            color_discrete_sequence=['#2ca02c']
-        )
-        st.plotly_chart(fig_overall, use_container_width=True)
+        if PLOTLY_AVAILABLE:
+            fig_overall = px.area(
+                overall_weekly, 
+                x='Week', 
+                y='Hours',
+                title='Overall Weekly Activity Trend',
+                color_discrete_sequence=['#2ca02c']
+            )
+            st.plotly_chart(fig_overall, use_container_width=True)
+        else:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.fill_between(overall_weekly['Week'], overall_weekly['Hours'], alpha=0.6, color='#2ca02c')
+            ax.plot(overall_weekly['Week'], overall_weekly['Hours'], color='#2ca02c', linewidth=2)
+            ax.set_title('Overall Weekly Activity Trend', fontsize=14)
+            ax.set_xlabel('Week')
+            ax.set_ylabel('Hours')
+            ax.grid(alpha=0.3)
+            st.pyplot(fig)
     
     with tab4:
         st.subheader("🎯 Key Insights")
@@ -278,26 +315,48 @@ def main():
                 'completion_rate': 'mean'
             }).round(2)
             
-            fig_radar = go.Figure()
-            
-            for course in course_metrics.index[:3]:  # Top 3 courses
-                fig_radar.add_trace(go.Scatterpolar(
-                    r=[
-                        course_metrics.loc[course, 'total_hours']/course_metrics['total_hours'].max()*100,
-                        course_metrics.loc[course, 'performance_score'],
-                        course_metrics.loc[course, 'completion_rate']
-                    ],
-                    theta=['Hours', 'Performance', 'Completion'],
-                    fill='toself',
-                    name=course
-                ))
-            
-            fig_radar.update_layout(
-                polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
-                showlegend=True,
-                title="Course Comparison (Radar Chart)"
-            )
-            st.plotly_chart(fig_radar, use_container_width=True)
+            if PLOTLY_AVAILABLE:
+                fig_radar = go.Figure()
+                
+                for course in course_metrics.index[:3]:  # Top 3 courses
+                    fig_radar.add_trace(go.Scatterpolar(
+                        r=[
+                            course_metrics.loc[course, 'total_hours']/course_metrics['total_hours'].max()*100,
+                            course_metrics.loc[course, 'performance_score'],
+                            course_metrics.loc[course, 'completion_rate']
+                        ],
+                        theta=['Hours', 'Performance', 'Completion'],
+                        fill='toself',
+                        name=course
+                    ))
+                
+                fig_radar.update_layout(
+                    polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                    showlegend=True,
+                    title="Course Comparison (Radar Chart)"
+                )
+                st.plotly_chart(fig_radar, use_container_width=True)
+            else:
+                # Matplotlib alternative - simple bar chart comparison
+                fig, ax = plt.subplots(figsize=(10, 6))
+                x = range(len(course_metrics.index[:3]))
+                width = 0.25
+                
+                hours_norm = course_metrics['total_hours'][:3] / course_metrics['total_hours'].max() * 100
+                performance = course_metrics['performance_score'][:3]
+                completion = course_metrics['completion_rate'][:3]
+                
+                ax.bar([i - width for i in x], hours_norm, width, label='Hours (normalized)', alpha=0.8)
+                ax.bar(x, performance, width, label='Performance', alpha=0.8)
+                ax.bar([i + width for i in x], completion, width, label='Completion', alpha=0.8)
+                
+                ax.set_xlabel('Courses')
+                ax.set_ylabel('Scores')
+                ax.set_title('Course Comparison')
+                ax.set_xticks(x)
+                ax.set_xticklabels(course_metrics.index[:3], rotation=45)
+                ax.legend()
+                st.pyplot(fig)
         
         # Detailed data table
         st.subheader("📋 Detailed Data")
