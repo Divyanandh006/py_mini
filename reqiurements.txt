@@ -1,0 +1,7 @@
+streamlit==1.28.1
+pandas==2.0.3
+numpy==1.24.3
+plotly==5.17.0
+seaborn==0.12.2
+matplotlib==3.7.2
+google-cloud-storage==2.10.0
