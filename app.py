@@ -1,21 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from datetime import datetime, timedelta
-import io
 import warnings
 warnings.filterwarnings('ignore')
-
-# Try to import plotly, fall back to matplotlib if not available
-try:
-    import plotly.express as px
-    import plotly.graph_objects as go
-    PLOTLY_AVAILABLE = True
-except ImportError:
-    PLOTLY_AVAILABLE = False
-    st.warning("Plotly not available. Using matplotlib for all visualizations.")
 
 # Page config
 st.set_page_config(
@@ -42,19 +30,15 @@ st.markdown("""
         color: white;
         text-align: center;
     }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2px;
+    .insight-box {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #1f77b4;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
-
-# Download functionality for plots
-def create_download_link(fig, filename):
-    """Create a download button for matplotlib figures"""
-    buffer = io.BytesIO()
-    fig.savefig(buffer, format='png', dpi=300, bbox_inches='tight')
-    buffer.seek(0)
-    return buffer.getvalue()
 
 # Generate sample data
 @st.cache_data
@@ -66,7 +50,6 @@ def generate_sample_data():
     courses = ["Python Programming", "Data Science", "Web Development", "Machine Learning", "Database Systems"]
     
     data = []
-    start_date = datetime.now() - timedelta(days=90)
     
     for student in students:
         for course in courses:
@@ -95,21 +78,21 @@ def generate_sample_data():
     
     return pd.DataFrame(data)
 
-# Save plot to GCP
-def save_plot_locally(fig, filename):
-    """Save plot and provide download option"""
-    buffer = create_download_link(fig, filename)
-    st.download_button(
-        label=f"📥 Download {filename}",
-        data=buffer,
-        file_name=filename,
-        mime="image/png",
-        help="Click to download the plot as PNG"
-    )
+# Create visualizations using Streamlit's built-in charts
+def create_bar_chart(data, title):
+    st.subheader(title)
+    st.bar_chart(data)
+
+def create_line_chart(data, title):
+    st.subheader(title)
+    st.line_chart(data)
+
+def create_area_chart(data, title):
+    st.subheader(title)
+    st.area_chart(data)
 
 # Main app
 def main():
-    # Initialize app
     st.markdown('<h1 class="main-header">📚 Online Learning Engagement Tracker</h1>', 
                 unsafe_allow_html=True)
     
@@ -135,6 +118,7 @@ def main():
         filtered_df = filtered_df[filtered_df['engagement_level'] == engagement_filter]
     
     # Key Metrics
+    st.header("📊 Key Performance Indicators")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -154,78 +138,65 @@ def main():
         st.metric("Avg Completion", f"{completion_rate:.1f}%")
     
     # Tabs for different visualizations
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔥 Heatmap", "📈 Trends", "🎯 Insights"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔥 Analysis", "📈 Trends", "🎯 Insights"])
     
     with tab1:
+        st.header("Course Engagement Overview")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            # Engagement per course bar chart
-            course_engagement = filtered_df.groupby('course')['total_hours'].mean().sort_values(ascending=True)
-            
-            if PLOTLY_AVAILABLE:
-                fig_bar = px.bar(
-                    x=course_engagement.values,
-                    y=course_engagement.index,
-                    orientation='h',
-                    title="Average Hours per Course",
-                    color=course_engagement.values,
-                    color_continuous_scale='viridis'
-                )
-                fig_bar.update_layout(height=400)
-                st.plotly_chart(fig_bar, use_container_width=True)
-            else:
-                fig, ax = plt.subplots(figsize=(8, 6))
-                bars = ax.barh(course_engagement.index, course_engagement.values, color='viridis')
-                ax.set_title('Average Hours per Course', fontsize=14)
-                ax.set_xlabel('Hours')
-                st.pyplot(fig)
+            # Engagement per course
+            course_engagement = filtered_df.groupby('course')['total_hours'].mean()
+            create_bar_chart(course_engagement, "Average Hours per Course")
         
         with col2:
-            # Performance distribution
-            if PLOTLY_AVAILABLE:
-                fig_hist = px.histogram(
-                    filtered_df, 
-                    x='performance_score', 
-                    nbins=20,
-                    title="Performance Score Distribution",
-                    color_discrete_sequence=['#ff7f0e']
-                )
-                fig_hist.update_layout(height=400)
-                st.plotly_chart(fig_hist, use_container_width=True)
-            else:
-                fig, ax = plt.subplots(figsize=(8, 6))
-                ax.hist(filtered_df['performance_score'], bins=20, color='#ff7f0e', alpha=0.7)
-                ax.set_title('Performance Score Distribution', fontsize=14)
-                ax.set_xlabel('Performance Score')
-                ax.set_ylabel('Frequency')
-                st.pyplot(fig)
+            # Performance by course
+            course_performance = filtered_df.groupby('course')['performance_score'].mean()
+            create_bar_chart(course_performance, "Average Performance by Course")
+        
+        # Engagement level distribution
+        st.subheader("Engagement Level Distribution")
+        engagement_counts = filtered_df['engagement_level'].value_counts()
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("High Engagement", engagement_counts.get('High', 0))
+        with col2:
+            st.metric("Medium Engagement", engagement_counts.get('Medium', 0))
+        with col3:
+            st.metric("Low Engagement", engagement_counts.get('Low', 0))
     
     with tab2:
-        st.subheader("🔥 Hours vs Performance Heatmap")
+        st.header("🔥 Learning Pattern Analysis")
         
-        # Create heatmap data
-        filtered_df['hours_bin'] = pd.cut(filtered_df['total_hours'], bins=10)
-        filtered_df['perf_bin'] = pd.cut(filtered_df['performance_score'], bins=10)
+        # Hours vs Performance Analysis
+        st.subheader("Hours vs Performance Correlation")
         
-        heatmap_data = filtered_df.groupby(['hours_bin', 'perf_bin']).size().unstack(fill_value=0)
+        # Create bins for analysis
+        filtered_df['hours_bin'] = pd.cut(filtered_df['total_hours'], bins=5, labels=['Very Low', 'Low', 'Medium', 'High', 'Very High'])
+        filtered_df['perf_bin'] = pd.cut(filtered_df['performance_score'], bins=5, labels=['Poor', 'Below Avg', 'Average', 'Good', 'Excellent'])
         
-        # Matplotlib heatmap
-        fig, ax = plt.subplots(figsize=(12, 8))
-        sns.heatmap(heatmap_data, annot=True, fmt='d', cmap='YlOrRd', ax=ax)
-        ax.set_title('Student Distribution: Hours Spent vs Performance Score', fontsize=16)
-        ax.set_xlabel('Performance Score Bins', fontsize=12)
-        ax.set_ylabel('Hours Spent Bins', fontsize=12)
+        # Display correlation matrix
+        correlation = filtered_df['total_hours'].corr(filtered_df['performance_score'])
+        st.markdown(f"""
+        <div class="insight-box">
+            <h4>📊 Key Finding</h4>
+            <p>Strong correlation between study hours and performance: <strong>{correlation:.3f}</strong></p>
+            <p>Students who spend more time studying tend to perform significantly better!</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        st.pyplot(fig)
+        # Hours distribution by performance level
+        perf_hours = filtered_df.groupby('perf_bin')['total_hours'].mean()
+        create_bar_chart(perf_hours, "Average Study Hours by Performance Level")
         
-        # Download option
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            save_plot_locally(fig, 'heatmap_hours_vs_performance.png')
+        # Course difficulty analysis (inverse of performance)
+        course_difficulty = 100 - filtered_df.groupby('course')['performance_score'].mean()
+        create_bar_chart(course_difficulty, "Course Difficulty Index (Higher = More Challenging)")
     
     with tab3:
-        st.subheader("📈 Weekly Activity Trends")
+        st.header("📈 Weekly Activity Trends")
         
         # Prepare weekly data
         weekly_data = []
@@ -234,141 +205,119 @@ def main():
                 weekly_data.append({
                     'Week': week,
                     'Hours': hours,
-                    'Course': row['course'],
-                    'Student': row['student_id']
+                    'Course': row['course']
                 })
         
         weekly_df = pd.DataFrame(weekly_data)
-        weekly_summary = weekly_df.groupby(['Week', 'Course'])['Hours'].mean().reset_index()
         
-        # Line chart
-        if PLOTLY_AVAILABLE:
-            fig_line = px.line(
-                weekly_summary, 
-                x='Week', 
-                y='Hours', 
-                color='Course',
-                title='Weekly Learning Activity Trends',
-                markers=True
-            )
-            fig_line.update_layout(height=500)
-            st.plotly_chart(fig_line, use_container_width=True)
-        else:
-            fig, ax = plt.subplots(figsize=(12, 6))
-            for course in weekly_summary['Course'].unique():
-                course_data = weekly_summary[weekly_summary['Course'] == course]
-                ax.plot(course_data['Week'], course_data['Hours'], marker='o', label=course)
-            ax.set_title('Weekly Learning Activity Trends', fontsize=14)
-            ax.set_xlabel('Week')
-            ax.set_ylabel('Hours')
-            ax.legend()
-            ax.grid(alpha=0.3)
-            st.pyplot(fig)
+        # Overall weekly trend
+        overall_weekly = weekly_df.groupby('Week')['Hours'].mean()
+        create_line_chart(overall_weekly, "Overall Weekly Activity Trend")
         
-        # Overall trend
-        overall_weekly = weekly_df.groupby('Week')['Hours'].mean().reset_index()
-        if PLOTLY_AVAILABLE:
-            fig_overall = px.area(
-                overall_weekly, 
-                x='Week', 
-                y='Hours',
-                title='Overall Weekly Activity Trend',
-                color_discrete_sequence=['#2ca02c']
-            )
-            st.plotly_chart(fig_overall, use_container_width=True)
-        else:
-            fig, ax = plt.subplots(figsize=(12, 6))
-            ax.fill_between(overall_weekly['Week'], overall_weekly['Hours'], alpha=0.6, color='#2ca02c')
-            ax.plot(overall_weekly['Week'], overall_weekly['Hours'], color='#2ca02c', linewidth=2)
-            ax.set_title('Overall Weekly Activity Trend', fontsize=14)
-            ax.set_xlabel('Week')
-            ax.set_ylabel('Hours')
-            ax.grid(alpha=0.3)
-            st.pyplot(fig)
+        # Course-wise weekly trends
+        st.subheader("Weekly Trends by Course")
+        for course in selected_courses:
+            course_weekly = weekly_df[weekly_df['Course'] == course].groupby('Week')['Hours'].mean()
+            st.write(f"**{course}**")
+            st.line_chart(course_weekly)
+        
+        # Weekly engagement patterns
+        st.subheader("Weekly Engagement Insights")
+        peak_week = overall_weekly.idxmax()
+        low_week = overall_weekly.idxmin()
+        
+        st.markdown(f"""
+        <div class="insight-box">
+            <h4>📅 Weekly Patterns</h4>
+            <p><strong>Peak Activity:</strong> Week {peak_week} ({overall_weekly[peak_week]:.1f} hours average)</p>
+            <p><strong>Lowest Activity:</strong> Week {low_week} ({overall_weekly[low_week]:.1f} hours average)</p>
+            <p><strong>Trend:</strong> {'Increasing' if overall_weekly.iloc[-1] > overall_weekly.iloc[0] else 'Decreasing'} engagement over time</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     with tab4:
-        st.subheader("🎯 Key Insights")
+        st.header("🎯 Detailed Insights & Analytics")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Top performers
-            st.write("**🏆 Top Performing Courses**")
+            st.subheader("🏆 Top Performers")
+            
+            # Top performing courses
             top_courses = filtered_df.groupby('course')['performance_score'].mean().sort_values(ascending=False)
-            for i, (course, score) in enumerate(top_courses.head(3).items(), 1):
-                st.write(f"{i}. {course}: {score:.1f}%")
+            for i, (course, score) in enumerate(top_courses.items(), 1):
+                st.write(f"{i}. **{course}**: {score:.1f}%")
             
-            # Engagement insights
-            st.write("**⚡ Engagement Insights**")
-            high_engagement = len(filtered_df[filtered_df['engagement_level'] == 'High'])
-            total = len(filtered_df)
-            st.write(f"• {(high_engagement/total)*100:.1f}% high engagement rate")
+            st.subheader("⚡ Engagement Statistics")
+            high_engagement_pct = (len(filtered_df[filtered_df['engagement_level'] == 'High']) / len(filtered_df)) * 100
+            st.write(f"• High engagement rate: **{high_engagement_pct:.1f}%**")
             
-            correlation = filtered_df['total_hours'].corr(filtered_df['performance_score'])
-            st.write(f"• Hours-Performance correlation: {correlation:.2f}")
+            avg_completion = filtered_df['completion_rate'].mean()
+            st.write(f"• Average completion rate: **{avg_completion:.1f}%**")
+            
+            # Study pattern insights
+            efficient_learners = filtered_df[
+                (filtered_df['total_hours'] < filtered_df['total_hours'].median()) & 
+                (filtered_df['performance_score'] > filtered_df['performance_score'].median())
+            ]
+            st.write(f"• Efficient learners (high performance, low hours): **{len(efficient_learners)}** students")
         
         with col2:
-            # Course comparison radar
-            course_metrics = filtered_df.groupby('course').agg({
-                'total_hours': 'mean',
-                'performance_score': 'mean',
-                'completion_rate': 'mean'
-            }).round(2)
+            st.subheader("📈 Performance Distribution")
             
-            if PLOTLY_AVAILABLE:
-                fig_radar = go.Figure()
-                
-                for course in course_metrics.index[:3]:  # Top 3 courses
-                    fig_radar.add_trace(go.Scatterpolar(
-                        r=[
-                            course_metrics.loc[course, 'total_hours']/course_metrics['total_hours'].max()*100,
-                            course_metrics.loc[course, 'performance_score'],
-                            course_metrics.loc[course, 'completion_rate']
-                        ],
-                        theta=['Hours', 'Performance', 'Completion'],
-                        fill='toself',
-                        name=course
-                    ))
-                
-                fig_radar.update_layout(
-                    polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
-                    showlegend=True,
-                    title="Course Comparison (Radar Chart)"
-                )
-                st.plotly_chart(fig_radar, use_container_width=True)
-            else:
-                # Matplotlib alternative - simple bar chart comparison
-                fig, ax = plt.subplots(figsize=(10, 6))
-                x = range(len(course_metrics.index[:3]))
-                width = 0.25
-                
-                hours_norm = course_metrics['total_hours'][:3] / course_metrics['total_hours'].max() * 100
-                performance = course_metrics['performance_score'][:3]
-                completion = course_metrics['completion_rate'][:3]
-                
-                ax.bar([i - width for i in x], hours_norm, width, label='Hours (normalized)', alpha=0.8)
-                ax.bar(x, performance, width, label='Performance', alpha=0.8)
-                ax.bar([i + width for i in x], completion, width, label='Completion', alpha=0.8)
-                
-                ax.set_xlabel('Courses')
-                ax.set_ylabel('Scores')
-                ax.set_title('Course Comparison')
-                ax.set_xticks(x)
-                ax.set_xticklabels(course_metrics.index[:3], rotation=45)
-                ax.legend()
-                st.pyplot(fig)
+            perf_ranges = {
+                'Excellent (90-100%)': len(filtered_df[filtered_df['performance_score'] >= 90]),
+                'Good (80-89%)': len(filtered_df[(filtered_df['performance_score'] >= 80) & (filtered_df['performance_score'] < 90)]),
+                'Average (70-79%)': len(filtered_df[(filtered_df['performance_score'] >= 70) & (filtered_df['performance_score'] < 80)]),
+                'Below Average (<70%)': len(filtered_df[filtered_df['performance_score'] < 70])
+            }
+            
+            for range_name, count in perf_ranges.items():
+                percentage = (count / len(filtered_df)) * 100
+                st.write(f"• **{range_name}**: {count} students ({percentage:.1f}%)")
+            
+            st.subheader("🎯 Recommendations")
+            st.markdown("""
+            <div class="insight-box">
+                <h4>💡 Key Recommendations</h4>
+                <ul>
+                    <li>Students should aim for <strong>20+ hours</strong> per course for optimal performance</li>
+                    <li>Focus on <strong>consistent weekly study</strong> rather than cramming</li>
+                    <li>Courses with lower performance may need <strong>additional support</strong></li>
+                    <li>High-engagement students show <strong>significantly better outcomes</strong></li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
         
         # Detailed data table
-        st.subheader("📋 Detailed Data")
-        display_df = filtered_df[['student_id', 'course', 'total_hours', 'performance_score', 'engagement_level']].copy()
-        display_df.columns = ['Student ID', 'Course', 'Hours', 'Performance (%)', 'Engagement']
-        st.dataframe(display_df, use_container_width=True)
+        st.subheader("📋 Student Performance Data")
+        display_df = filtered_df[['student_id', 'course', 'total_hours', 'performance_score', 'engagement_level', 'completion_rate']].copy()
+        display_df.columns = ['Student ID', 'Course', 'Hours', 'Performance (%)', 'Engagement', 'Completion (%)']
+        display_df = display_df.round(1)
+        
+        # Add search functionality
+        search_term = st.text_input("🔍 Search students or courses:", "")
+        if search_term:
+            mask = display_df.astype(str).apply(lambda x: x.str.contains(search_term, case=False, na=False)).any(axis=1)
+            display_df = display_df[mask]
+        
+        st.dataframe(display_df, use_container_width=True, height=400)
+        
+        # Download data as CSV
+        csv = display_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Data as CSV",
+            data=csv,
+            file_name=f"learning_engagement_data_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
     
     # Footer
     st.markdown("---")
     st.markdown(
-        "**📊 Online Learning Engagement Tracker** | "
-        "Built with Streamlit | "
+        f"**📊 Online Learning Engagement Tracker** | "
+        f"Built with Streamlit | "
+        f"Analyzing {len(filtered_df)} student records | "
         f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
 
